@@ -34,7 +34,7 @@ pub enum Cmd {
 
 impl Cmd {
     /// Decode the command to run, from the given input bytes.
-    pub fn decode_line<'a>(input_bytes: Bytes) -> Result<Self, &'a str> {
+    pub fn decode_line<'a>(input_bytes: Bytes) -> Result<Self, String> {
         // Iterate over input parts
         let mut input = input_bytes
             .split(|b| b == &b' ')
@@ -58,8 +58,8 @@ impl Cmd {
                     match input.next() {
                         // Color part found, set the pixel command
                         Some(color) => {
-                            let color =
-                                Color::from_hex_raw(&color).map_err(|_| "invalid color value")?;
+                            let color = Color::from_hex_raw(&color)
+                                .map_err(|_| format!("invalid color value, {:X?}", color))?;
                             Ok(Cmd::SetPixel(x, y, color))
                         }
 
@@ -74,7 +74,10 @@ impl Cmd {
                 b"QUIT" => Ok(Cmd::Quit),
                 b"" => Ok(Cmd::None),
                 // Unknown command
-                _ => Err("unknown command, use HELP"),
+                _ => Err(format!(
+                    "unknown command, use HELP (command bytes: {:X?})",
+                    cmd
+                )),
             },
 
             // If no command was specified, do nothing
@@ -94,7 +97,7 @@ impl Cmd {
             Cmd::SetPixel(x, y, color) => {
                 // Set the pixel
                 if let Err(err) = pixmap.set_pixel(x, y, color) {
-                    return CmdResult::from_pixmap_err(err);
+                    return err.into();
                 } else {
                     *pixel_set_count += 1;
                 }
@@ -104,7 +107,7 @@ impl Cmd {
             Cmd::GetPixel(x, y) => {
                 // Get the hexadecimal color value of a pixel
                 let color = match pixmap.pixel(x, y) {
-                    Err(err) => return CmdResult::from_pixmap_err(err),
+                    Err(err) => return err.into(),
                     Ok(color) => color.hex(),
                 };
 
@@ -185,12 +188,10 @@ pub enum CmdResult {
     Quit,
 }
 
-impl CmdResult {
-    /// Build a command result from the given pixmap error that has occurred
-    /// when invoking a command.
-    pub fn from_pixmap_err(err: PixmapErr) -> CmdResult {
-        match err {
-            PixmapErr::OutOfBound(msg) => CmdResult::ClientErr(msg.into()),
+impl From<PixmapErr> for CmdResult {
+    fn from(e: PixmapErr) -> Self {
+        match e {
+            PixmapErr::OutOfBound(e) => CmdResult::ClientErr(e),
         }
     }
 }
