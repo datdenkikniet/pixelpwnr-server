@@ -1,3 +1,5 @@
+mod decompressor;
+
 use std::sync::Arc;
 use std::task::Poll;
 use std::{mem::MaybeUninit, pin::Pin};
@@ -9,6 +11,8 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::cmd::{Cmd, CmdResult};
 use crate::stats::Stats;
+
+use self::decompressor::{Decompressor, ZstdDecompressor};
 
 /// The capacity of the read and write buffer in bytes.
 const BUF_SIZE: usize = 64_000;
@@ -42,6 +46,14 @@ pub const PXB_PREFIX: [u8; 2] = ['P' as u8, 'B' as u8];
 ///`                            Prefix             x   y   r   g   b   a
 pub const PXB_CMD_SIZE: usize = PXB_PREFIX.len() + 2 + 2 + 1 + 1 + 1 + 1;
 
+/// An error that can occur while attempting to read from a socket
+#[derive(Debug)]
+pub enum ReadError {
+    EOF,
+    DecompressorError(std::io::Error),
+    SocketError(std::io::Error),
+}
+
 /// Line based codec.
 ///
 /// This decorates a socket and presents a line based read / write interface.
@@ -50,7 +62,7 @@ pub const PXB_CMD_SIZE: usize = PXB_PREFIX.len() + 2 + 2 + 1 + 1 + 1 + 1;
 /// send and receive values that represent entire lines. The `Lines` codec will
 /// handle the encoding and decoding as well as reading from and writing to the
 /// socket.
-pub struct Lines<'sock, T>
+pub struct Lines<'sock, 'decomp, T>
 where
     T: AsyncRead + AsyncWrite,
 {
@@ -69,9 +81,12 @@ where
 
     /// A pixel map.
     pixmap: Arc<Pixmap>,
+
+    // A possible decompressor
+    decoder: Option<ZstdDecompressor<'decomp>>,
 }
 
-impl<'sock, T> Lines<'sock, T>
+impl<'sock, 'decomp, T> Lines<'sock, 'decomp, T>
 where
     T: AsyncRead + AsyncWrite,
 {
@@ -83,6 +98,7 @@ where
             wr: BytesMut::with_capacity(BUF_SIZE),
             stats,
             pixmap,
+            decoder: None,
         }
     }
 
@@ -134,7 +150,7 @@ where
     fn fill_read_buf(
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
-    ) -> Poll<Result<(), ()>> {
+    ) -> Poll<Result<(), ReadError>> {
         // Get the length of buffer contents
         let len = self.rd.len();
 
@@ -149,16 +165,27 @@ where
 
         let amount = match self.socket.as_mut().poll_read(cx, &mut read_buf) {
             Poll::Ready(Ok(_)) => read_buf.filled().len(),
-            Poll::Ready(Err(_)) => return Poll::Ready(Err(())),
+            Poll::Ready(Err(e)) => return Poll::Ready(Err(ReadError::SocketError(e))),
             _ => return Poll::Pending,
         };
 
         // poll_read returns Ok(0) if the other end has hung up/EOF has been reached
         if amount == 0 {
-            return Poll::Ready(Err(()));
+            return Poll::Ready(Err(ReadError::EOF));
         }
 
-        self.rd.extend_from_slice(read_buf.filled());
+        let mut output_bytes = BytesMut::with_capacity(BUF_SIZE * 8);
+
+        let extend_slice = if let Some(decompressor) = &mut self.decoder {
+            match decompressor.decompress_stream(read_buf.filled(), &mut output_bytes) {
+                Ok(_decompressed_bytes_read) => {}
+                Err(e) => return Poll::Ready(Err(ReadError::DecompressorError(e))),
+            }
+            &output_bytes
+        } else {
+            read_buf.filled()
+        };
+        self.rd.extend_from_slice(extend_slice);
 
         self.stats.inc_bytes_read(amount);
 
@@ -167,7 +194,7 @@ where
     }
 }
 
-impl<'sock, T> Future for Lines<'sock, T>
+impl<'sock, 'decomp, T> Future for Lines<'sock, 'decomp, T>
 where
     T: AsyncRead + AsyncWrite,
 {
@@ -180,7 +207,20 @@ where
 
         match fill_read_buf {
             // An error occured (most likely disconnection)
-            Poll::Ready(Err(_)) => return Poll::Ready("Client disconnected".into()),
+            Poll::Ready(Err(e)) => {
+                let message = match e {
+                    ReadError::EOF => "EOF reached".to_string(),
+                    ReadError::DecompressorError(e) => {
+                        format!("Decompressor error: {:?}", e)
+                    }
+                    ReadError::SocketError(e) => format!("Socket error: {:?}", e),
+                };
+
+                self.buffer(&format!("ERR {}\r\n", message).as_bytes());
+                let _ignored = self.poll_flush(cx);
+
+                return Poll::Ready(message);
+            }
             Poll::Ready(Ok(_)) => {
                 if new_rd_len < 2 {
                     // If the buffer cannot possibly contain a command, it makes sense
@@ -241,6 +281,19 @@ where
 
                     // Drop trailing new line characters
                     line.truncate(pos);
+
+                    if &line[..] == b"COMPRESS" {
+                        self.decoder = Some(ZstdDecompressor::new());
+                        self.buffer(b"COMPRESS\n");
+
+                        if let Poll::Pending = self.poll_flush(cx) {
+                            return Poll::Ready(format!(
+                                "Sending compressor confirmation message failed."
+                            ));
+                        }
+                        line.truncate(0);
+                        continue;
+                    }
 
                     // Return the line
                     match Cmd::decode_line(line.freeze()) {
