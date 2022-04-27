@@ -236,6 +236,7 @@ where
             Poll::Pending => return Poll::Pending,
         }
 
+        let mut pixels_set = 0;
         let result = loop {
             let rd_len = self.rd.len();
 
@@ -324,11 +325,15 @@ where
                 break Ok(());
             };
 
-            let result = command.invoke(&self.pixmap, &self.stats);
+            let result = command.invoke(&self.pixmap);
             // Do something with the result
             match result {
                 // Do nothing
-                CmdResult::Ok => {}
+                CmdResult::Ok(is_set_pixel) => {
+                    if is_set_pixel {
+                        pixels_set += 1
+                    }
+                }
 
                 // Respond to the client
                 CmdResult::Response(msg) => {
@@ -356,6 +361,10 @@ where
                 CmdResult::Quit => break Err("Client quit".to_string()),
             }
         };
+
+        // Increase the amount of set pixels by the amount of pixel set commands
+        // that we processed in this batch
+        self.stats.inc_pixels_by_n(pixels_set);
 
         // This isn't used correctly: we probably need a (small) state machine
         // to determine that we should keep transmitting until we have emptied
