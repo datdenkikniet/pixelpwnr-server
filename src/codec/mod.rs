@@ -293,7 +293,7 @@ where
                             ));
                         }
                         line.truncate(0);
-                        continue;
+                        break Ok(());
                     }
 
                     // Return the line
@@ -338,7 +338,7 @@ where
                 // Respond to the client
                 CmdResult::Response(msg) => {
                     // Create a bytes buffer with the message
-                    self.buffer(msg.as_bytes());
+                    self.buffer(format!("{}\r\n", msg).as_bytes());
                 }
 
                 // Report the error to the user
