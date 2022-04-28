@@ -293,7 +293,7 @@ where
                             ));
                         }
                         line.truncate(0);
-                        continue;
+                        break Ok(());
                     }
 
                     // Return the line
