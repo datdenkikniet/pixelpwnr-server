@@ -7,6 +7,7 @@ use pixelpwnr_render::{Color, Pixmap, PixmapErr};
 /// These commands may then be invoked on the pixel map state.
 /// A command might get or set the color of a pixel, or it
 /// might request help.
+#[derive(Clone, Copy, Debug)]
 pub enum Cmd {
     /// Get the color of a pixel.
     ///
@@ -165,6 +166,7 @@ impl Cmd {
 /// This result defines the status of the command that was invoked.
 /// Some response might need to be send to the client,
 /// or an error might have occurred.
+#[derive(PartialEq)]
 pub enum CmdResult {
     /// The command has been invoked successfully.
     ///
