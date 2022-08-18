@@ -269,9 +269,11 @@ where
 
                     // Set the pixel
                     if let Err(e) = self.pixmap.set_pixel(x as usize, y as usize, color) {
-                        self.buffer(format!("ERR {}\r\n", e).as_bytes());
+                        let line = format!("ERR {}\r\n", e);
+                        let err_line = e.to_string();
+                        self.buffer(line.as_bytes());
                         let _ = self.poll_flush(cx);
-                        return Err(e.to_string());
+                        return Err(err_line);
                     }
                     pixels_set += 1;
                     continue;
@@ -423,9 +425,10 @@ where
                 let (x, y, color) = Self::handle_pixel_bytes(&split[..BINARY_PX_SIZE]);
 
                 if let Err(e) = self.pixmap.set_pixel(x as usize, y as usize, color) {
+                    let e_str = e.to_string();
                     self.buffer("Error: coordinate out of bounds\r\n".to_string().as_bytes());
                     let _ = self.poll_flush(cx);
-                    return Poll::Ready(format!("Client error: {:?}", e));
+                    return Poll::Ready(format!("Client error: {:?}", e_str));
                 }
 
                 split = &split[BINARY_PX_SIZE..];

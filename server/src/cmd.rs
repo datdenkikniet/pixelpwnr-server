@@ -190,10 +190,10 @@ pub enum CmdResult {
     Quit,
 }
 
-impl From<PixmapErr> for CmdResult {
+impl From<PixmapErr<'_>> for CmdResult {
     fn from(e: PixmapErr) -> Self {
         match e {
-            PixmapErr::OutOfBound(e) => CmdResult::ClientErr(e),
+            PixmapErr::OutOfBound(e) => CmdResult::ClientErr(e.to_string()),
         }
     }
 }
