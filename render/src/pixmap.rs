@@ -175,3 +175,14 @@ pub enum PixmapErr<'a> {
     /// The given pixel coordinate or index is out of bound.
     OutOfBound(&'a str),
 }
+
+impl core::fmt::Display for PixmapErr<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        #[allow(irrefutable_let_patterns)]
+        if let Self::OutOfBound(e) = self {
+            f.write_str(&format!("OutOfBounds: {}", e))
+        } else {
+            unreachable!()
+        }
+    }
+}
