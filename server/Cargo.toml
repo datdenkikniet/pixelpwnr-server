@@ -15,6 +15,7 @@ categories = [
     "visualization",
 ]
 edition = "2021"
+rust-version = "1.58.1"
 
 [dependencies]
 atoi = "1.0"
