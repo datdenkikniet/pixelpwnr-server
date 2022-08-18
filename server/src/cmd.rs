@@ -148,8 +148,7 @@ impl Cmd {
             HELP - PX <x> <y> <RRGGBB[AA]>\r\n\
             HELP - PX <x> <y>   >>  PX <x> <y> <RRGGBB>\r\n\
             HELP - SIZE         >>  SIZE <width> <height>\r\n\
-            HELP - HELP         >>  HELP ...\r\n\
-            HELP - QUIT\
+            HELP - HELP         >>  HELP ...\
         ",
             env!("CARGO_PKG_NAME"),
             env!("CARGO_PKG_VERSION")
@@ -157,9 +156,16 @@ impl Cmd {
 
         if cfg!(feature = "binary-pixel-cmd") {
             help.push_str(
-                "\r\nHELP - PBxyrgba (NO newline, x, y = 2 byte LE u16, r, g, b, a = single byte)",
+                "\r\nHELP - PBxyrgba     >> (NO newline, x, y = 2 byte LE u16, r, g, b, a = u8)",
             );
         }
+
+        if cfg!(feature = "compression") {
+            help.push_str("\r\nHELP - COMPRESS     >> Enable ecompression. After transmitting COMPRESS\\r\\n, the server will attempt to decode\
+            all incoming data as ZSTD frames. Data sent towards the client is not compressed.")
+        }
+
+        help.push_str("\r\nHELP - QUIT");
 
         help
     }

@@ -1,5 +1,3 @@
-mod decompressor;
-
 use std::sync::Arc;
 use std::task::Poll;
 use std::{mem::MaybeUninit, pin::Pin};
@@ -11,6 +9,8 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::cmd::{Cmd, CmdResult};
 use crate::stats::Stats;
+
+mod decompressor;
 
 use self::decompressor::{Decompressor, ZstdDecompressor};
 
@@ -315,9 +315,9 @@ where
                     // Drop trailing new line characters
                     line.truncate(pos);
 
-                    if &line[..] == b"COMPRESS" {
+                    if cfg!(feature = "compression") && &line[..] == b"COMPRESS" {
                         self.decoder = Some(ZstdDecompressor::new());
-                        self.buffer(b"COMPRESS\n");
+                        self.buffer(b"COMPRESS\r\n");
 
                         if let Poll::Pending = self.poll_flush(cx) {
                             break Err(
@@ -477,6 +477,27 @@ async fn response_newline() {
         // Using an out of bounds index should return an error
         .read(b"PX 1000 0\r\n")
         .write(b"ERR x coordinate out of bound\r\n")
+        .build();
+
+    let test = Pin::new(&mut test);
+
+    let lines = Lines::new(test, stats.clone(), pixmap.clone());
+
+    lines.await;
+}
+
+#[tokio::test]
+async fn compression() {
+    let stats = Arc::new(Stats::new());
+    let pixmap = Arc::new(Pixmap::new(400, 800));
+
+    let compressed_data = zstd::encode_all(&b"PX 16 16 AABBCC\r\nPX 16 16\r\n"[..], 0).unwrap();
+
+    let mut test = tokio_test::io::Builder::new()
+        .read(b"COMPRESS\r\n")
+        .write(b"COMPRESS\r\n")
+        .read(&compressed_data)
+        .write(b"PX 16 16 000000\r\n")
         .build();
 
     let test = Pin::new(&mut test);

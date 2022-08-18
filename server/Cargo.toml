@@ -34,7 +34,8 @@ zstd = "0.11.1"
 
 [features]
 binary-pixel-cmd = []
-default = ["binary-pixel-cmd"]
+compression = [ ]
+default = ["binary-pixel-cmd", "compression" ]
 
 [dev-dependencies]
 tokio-test = "0.4"
