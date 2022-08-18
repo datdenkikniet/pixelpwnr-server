@@ -32,10 +32,5 @@ parking_lot = "0.12.0"
 image = { version = "0.24", default-features = false, features = [ "png" ] }
 zstd = "0.11.1"
 
-[features]
-binary-pixel-cmd = []
-compression = [ ]
-default = ["binary-pixel-cmd", "compression" ]
-
 [dev-dependencies]
 tokio-test = "0.4"

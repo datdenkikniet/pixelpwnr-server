@@ -7,6 +7,7 @@ use futures::Future;
 use pixelpwnr_render::{Color, Pixmap};
 use tokio::io::{AsyncRead, AsyncWrite};
 
+use crate::arg_handler::ServerOptions;
 use crate::cmd::{Cmd, CmdResult};
 use crate::stats::Stats;
 
@@ -93,6 +94,9 @@ where
 
     /// The amount of repeated binary commands to process
     repeated_binary_commands: u32,
+
+    /// Server options
+    opts: ServerOptions,
 }
 
 impl<'sock, 'decomp, T> Lines<'sock, 'decomp, T>
@@ -100,7 +104,12 @@ where
     T: AsyncRead + AsyncWrite,
 {
     /// Create a new `Lines` codec backed by the socket
-    pub fn new(socket: Pin<&'sock mut T>, stats: Arc<Stats>, pixmap: Arc<Pixmap>) -> Self {
+    pub fn new(
+        socket: Pin<&'sock mut T>,
+        stats: Arc<Stats>,
+        pixmap: Arc<Pixmap>,
+        opts: ServerOptions,
+    ) -> Self {
         Lines {
             socket,
             rd: BytesMut::with_capacity(BUF_SIZE),
@@ -109,6 +118,7 @@ where
             pixmap,
             decoder: None,
             repeated_binary_commands: 0,
+            opts,
         }
     }
 
@@ -261,8 +271,7 @@ where
             let rd_len = self.rd.len();
 
             // See if it's the specialized binary command
-            let command = if cfg!(feature = "binary-pixel-cmd") && self.rd.starts_with(&PXB_PREFIX)
-            {
+            let command = if self.opts.binary_command_support && self.rd.starts_with(&PXB_PREFIX) {
                 if self.rd.len() >= PXB_CMD_SIZE {
                     let input_bytes = self.rd.split_to(PXB_CMD_SIZE);
                     let (x, y, color) = Self::handle_pixel_bytes(&input_bytes[PXB_PREFIX.len()..]);
@@ -280,7 +289,7 @@ where
                 } else {
                     return Ok(());
                 }
-            } else if cfg!(feature = "binary-pixel-cmd") && self.rd.starts_with(&PNB_PREFIX) {
+            } else if self.opts.binary_command_support && self.rd.starts_with(&PNB_PREFIX) {
                 if self.rd.len() >= PNB_CMD_SIZE {
                     let input_bytes = self.rd.split_to(PNB_CMD_SIZE);
                     const OFF: usize = PNB_PREFIX.len();
@@ -315,7 +324,7 @@ where
                     // Drop trailing new line characters
                     line.truncate(pos);
 
-                    if cfg!(feature = "compression") && &line[..] == b"COMPRESS" {
+                    if self.opts.compression_support && &line[..] == b"COMPRESS" {
                         self.decoder = Some(ZstdDecompressor::new());
                         self.buffer(b"COMPRESS\r\n");
 
@@ -355,7 +364,7 @@ where
                 }
             };
 
-            let result = command.invoke(&self.pixmap, &mut pixels_set);
+            let result = command.invoke(&self.pixmap, &mut pixels_set, &self.opts);
 
             self.handle_cmd_result(result)?;
         };
@@ -457,6 +466,11 @@ where
 
 #[tokio::test]
 async fn response_newline() {
+    let server_opts = ServerOptions {
+        binary_command_support: true,
+        compression_support: true,
+    };
+
     let stats = Arc::new(Stats::new());
     let pixmap = Arc::new(Pixmap::new(400, 800));
 
@@ -467,7 +481,7 @@ async fn response_newline() {
         .read(b"SIZE\r\n")
         .write(b"SIZE 400 800\r\n")
         .read(b"HELP\r\n")
-        .write(format!("{}\r\n", Cmd::help_list()).as_bytes())
+        .write(format!("{}\r\n", Cmd::help_list(&server_opts)).as_bytes())
         // Test different variations of newlines
         .read(b"PX 16 16\n")
         .write(b"PX 16 16 000000\r\n")
@@ -481,13 +495,18 @@ async fn response_newline() {
 
     let test = Pin::new(&mut test);
 
-    let lines = Lines::new(test, stats.clone(), pixmap.clone());
+    let lines = Lines::new(test, stats.clone(), pixmap.clone(), server_opts);
 
     lines.await;
 }
 
 #[tokio::test]
 async fn compression() {
+    let server_opts = ServerOptions {
+        binary_command_support: true,
+        compression_support: true,
+    };
+
     let stats = Arc::new(Stats::new());
     let pixmap = Arc::new(Pixmap::new(400, 800));
 
@@ -502,7 +521,7 @@ async fn compression() {
 
     let test = Pin::new(&mut test);
 
-    let lines = Lines::new(test, stats.clone(), pixmap.clone());
+    let lines = Lines::new(test, stats.clone(), pixmap.clone(), server_opts);
 
     lines.await;
 }

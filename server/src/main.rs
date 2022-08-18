@@ -15,6 +15,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use arg_handler::ServerOptions;
 use clap::StructOpt;
 use pixelpwnr_render::{Pixmap, Renderer};
 use tokio::net::{TcpListener, TcpStream};
@@ -61,6 +62,8 @@ fn main() {
         ));
     }
 
+    let server_opts = arg_handler.clone().into();
+
     let net_running = Arc::new(AtomicBool::new(true));
 
     // Create a std threa first. Tokio's [`TcpStream::listen`] automatically sets
@@ -78,7 +81,7 @@ fn main() {
     let net_running_2 = net_running.clone();
     let tokio_runtime = std::thread::spawn(move || {
         runtime.block_on(async move {
-            listen(listener, net_pixmap, net_stats).await;
+            listen(listener, net_pixmap, net_stats, server_opts).await;
             net_running_2.store(false, Ordering::Relaxed);
         })
     });
@@ -90,7 +93,12 @@ fn main() {
     }
 }
 
-async fn listen(listener: std::net::TcpListener, pixmap: Arc<Pixmap>, stats: Arc<Stats>) {
+async fn listen(
+    listener: std::net::TcpListener,
+    pixmap: Arc<Pixmap>,
+    stats: Arc<Stats>,
+    server_opts: ServerOptions,
+) {
     let listener = TcpListener::from_std(listener).unwrap();
 
     loop {
@@ -102,7 +110,7 @@ async fn listen(listener: std::net::TcpListener, pixmap: Arc<Pixmap>, stats: Arc
             println!("Failed to accept a connection");
             continue;
         };
-        handle_socket(socket, pixmap_worker, stats_worker);
+        handle_socket(socket, pixmap_worker, stats_worker, server_opts);
     }
 }
 
@@ -136,7 +144,12 @@ async fn spawn_save_image(dir: PathBuf, pixmap: Arc<Pixmap>, interval: Duration)
 }
 
 /// Spawn a new task with the given socket
-fn handle_socket(mut socket: TcpStream, pixmap: Arc<Pixmap>, stats: Arc<Stats>) {
+fn handle_socket(
+    mut socket: TcpStream,
+    pixmap: Arc<Pixmap>,
+    stats: Arc<Stats>,
+    server_opts: ServerOptions,
+) {
     // A client connected, ensure we're able to get it's address
     let addr = socket.peer_addr().expect("failed to get remote address");
     println!("A client connected (from: {})", addr);
@@ -154,7 +167,7 @@ fn handle_socket(mut socket: TcpStream, pixmap: Arc<Pixmap>, stats: Arc<Stats>) 
 
         // Wrap the socket with the Lines codec,
         // to interact with lines instead of raw bytes
-        let mut lines_val = Lines::new(socket, stats.clone(), pixmap);
+        let mut lines_val = Lines::new(socket, stats.clone(), pixmap, server_opts);
         let lines = Pin::new(&mut lines_val);
 
         let result = lines.await;

@@ -2,6 +2,8 @@ use atoi::atoi;
 use bytes::Bytes;
 use pixelpwnr_render::{Color, Pixmap, PixmapErr};
 
+use crate::arg_handler::ServerOptions;
+
 /// A set of pixel commands a client might send.
 ///
 /// These commands may then be invoked on the pixel map state.
@@ -91,7 +93,12 @@ impl Cmd {
     /// pixel_set_count is a mutable reference to the amount of pixels
     /// that have been set, and will be incremented automatically when
     /// if a pixel is updated successfully.
-    pub fn invoke<'a>(self, pixmap: &'a Pixmap, pixel_set_count: &mut usize) -> CmdResult {
+    pub fn invoke<'a>(
+        self,
+        pixmap: &'a Pixmap,
+        pixel_set_count: &mut usize,
+        opts: &ServerOptions,
+    ) -> CmdResult {
         // Match the command, invoke the proper action
         match self {
             // Set the pixel on the pixel map
@@ -126,7 +133,7 @@ impl Cmd {
             }
 
             // Show help
-            Cmd::Help => return CmdResult::Response(Self::help_list()),
+            Cmd::Help => return CmdResult::Response(Self::help_list(opts)),
 
             // Quit the connection
             Cmd::Quit => return CmdResult::Quit,
@@ -140,7 +147,7 @@ impl Cmd {
     }
 
     /// Get a list of command help, to respond to a client.
-    pub fn help_list() -> String {
+    pub fn help_list(opts: &ServerOptions) -> String {
         let mut help = format!(
             "\
             HELP {} v{}\r\n\
@@ -154,13 +161,13 @@ impl Cmd {
             env!("CARGO_PKG_VERSION")
         );
 
-        if cfg!(feature = "binary-pixel-cmd") {
+        if opts.binary_command_support {
             help.push_str(
                 "\r\nHELP - PBxyrgba     >> (NO newline, x, y = 2 byte LE u16, r, g, b, a = u8)",
             );
         }
 
-        if cfg!(feature = "compression") {
+        if opts.compression_support {
             help.push_str("\r\nHELP - COMPRESS     >> Enable ecompression. After transmitting COMPRESS\\r\\n, the server will attempt to decode\
             all incoming data as ZSTD frames. Data sent towards the client is not compressed.")
         }

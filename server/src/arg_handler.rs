@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use clap::Parser;
 
-#[derive(Parser)]
+#[derive(Clone, Parser)]
 pub struct Opts {
     /// The host to bind to
     #[clap(long, default_value = "0.0.0.0:1337", alias = "bind")]
@@ -72,6 +72,22 @@ pub struct Opts {
     /// This value is only relevant if --save-dir is specified
     #[clap(long, default_value = "60")]
     pub save_interval: u64,
+
+    /// Enable the COMPRESS command
+    ///
+    /// This allows clients to send the COMPRESS command, allowing
+    /// them to send their data as ZSTD frames instead of being
+    /// uncompressed. Note that there's nothing that limits the
+    /// size of the decompressed data sent by a client.
+    #[clap(long)]
+    pub compression: bool,
+
+    /// Enable the PXB and PNB commands
+    ///
+    /// This allows clients to send the binary PXB (for a single pixel)
+    /// and PNB (for N pixels at a time) commands
+    #[clap(long)]
+    pub binary: bool,
 }
 
 macro_rules! map_duration {
@@ -123,5 +139,30 @@ impl Opts {
                 .parse()
                 .expect("Invalid Y offset for stats"),
         )
+    }
+}
+
+#[derive(Clone, Copy)]
+
+pub struct ServerOptions {
+    pub binary_command_support: bool,
+    pub compression_support: bool,
+}
+
+impl From<Opts> for ServerOptions {
+    fn from(opts: Opts) -> Self {
+        Self {
+            binary_command_support: opts.binary,
+            compression_support: opts.compression,
+        }
+    }
+}
+
+impl Default for ServerOptions {
+    fn default() -> Self {
+        Self {
+            binary_command_support: false,
+            compression_support: false,
+        }
     }
 }
