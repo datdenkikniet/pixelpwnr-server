@@ -13,7 +13,7 @@ server in [Rust][rust].
 * GPU accelerated
 * Highly concurrent, to support many connections
 * Linux, Windows and macOS
-* Optional binary PX command for reduced bandwidth requirements (enabled by default).
+* Optional binary PX command for reduced bandwidth requirements.
 
 ## Installation
 For installation, Git and Rust cargo are required.
@@ -47,8 +47,13 @@ cargo build --release
 # Start using pixelpwnr-server
 ./target/release/pixelpwnr-server --help
 ```
-## The binary PX command
-This implementation adds a new command to the protocol, which is laid out as follows:
+
+## New commands
+This implementation adds the following new commands to the protocol.
+
+### Binary PX command
+
+This command is enabled if the `--binary` flag is passed to `pixelflut-server`.
 
 ```
 PBxyrgba
@@ -59,7 +64,28 @@ where:
 * `r`, `g`, `b` and `a` are single-byte values describing the R, G, B, and A components of the color to set the pixel to.
 * It is important to note that this command does _not_ end in a newline. Appending a newline simply causes the server to interpret that newline as an empty command (which is fine).
 
-If you wish to disable the binary pixel command, pass the `--no-default-features` flag to `cargo`
+### Repeated binary PX command
+
+This command is enabled if the `--binary` flag is passed to `pixelflut-server`.
+
+```
+PNBnxyrgbaxyrgbaxyrgba...
+```
+
+where: 
+* `n` is a Little-Endian u32, indicating the amount of repetitions of `xyrgba` that follow
+* `x`, `y`, `r`, `g`, `b`, and `a` have the same meaning as in the [Binary PX command](#binary-px-command)
+
+### Compression command
+
+This command is enabled if the `--compression` flag is passed to `pixelflut-server`.
+
+```
+COMPRESS\r\n
+```
+
+After the server responds by sending `COMPRESS\r\n` in reply, it will interpret all data coming from the client as ZSTD compressed
+data. Data sent from the server to the client is not compressed.
 
 ## Requirements
 * Rust (MSRV v1.58.1 or higher)
