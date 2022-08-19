@@ -1,7 +1,9 @@
 [workspace]
+default-members = [
+    "./server",
+]
 members = [
     "./server",
-    "./render",
 ]
 
 [profile.release]
