@@ -282,12 +282,12 @@ where
                         let err_line = e.to_string();
                         self.buffer(line.as_bytes());
                         let _ = self.poll_flush(cx);
-                        return Err(err_line);
+                        break Err(err_line);
                     }
                     pixels_set += 1;
                     continue;
                 } else {
-                    return Ok(());
+                    break Ok(pixels_set);
                 }
             } else if self.opts.binary_command_support && self.rd.starts_with(&PNB_PREFIX) {
                 if self.rd.len() >= PNB_CMD_SIZE {
@@ -297,7 +297,7 @@ where
                         u32::from_le_bytes(input_bytes[OFF..OFF + 4].try_into().expect("hun"));
                     self.repeated_binary_commands = pixels;
                 }
-                return Ok(());
+                break Ok(pixels_set);
             } else {
                 // Find the new line character
                 let pos = self
@@ -334,7 +334,7 @@ where
                             );
                         }
                         line.truncate(0);
-                        break Ok(());
+                        break Ok(pixels_set);
                     }
 
                     // Return the line
@@ -360,7 +360,7 @@ where
                     break Err("Line sent by client was too long".to_string());
                 } else {
                     // Didn't find any more data to process
-                    break Ok(());
+                    break Ok(pixels_set);
                 }
             };
 
@@ -372,7 +372,10 @@ where
         // Increase the amount of set pixels by the amount of pixel set commands
         // that we processed in this batch
         self.stats.inc_pixels_by_n(pixels_set);
-        result
+        result.map(|pixels_set| {
+            self.stats.inc_pixels_by_n(pixels_set);
+            ()
+        })
     }
 }
 
@@ -417,6 +420,7 @@ where
             }
             Poll::Pending => return Poll::Pending,
         }
+
         let command_result = if self.repeated_binary_commands == 0 {
             self.process_lines(cx)
         } else {
