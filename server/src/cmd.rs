@@ -196,17 +196,14 @@ pub enum CmdResult {
     /// clients input.
     ClientErr(String),
 
-    /// The following error occurred while invoking a command on the server.
-    ServerErr(String),
-
     /// The connection should be closed.
     Quit,
 }
 
 impl From<PixmapErr<'_>> for CmdResult {
-    fn from(e: PixmapErr) -> Self {
-        match e {
-            PixmapErr::OutOfBound(e) => CmdResult::ClientErr(e.to_string()),
+    fn from(err: PixmapErr) -> Self {
+        match err {
+            PixmapErr::OutOfBound(msg) => CmdResult::ClientErr(msg.into()),
         }
     }
 }
