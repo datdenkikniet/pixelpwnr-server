@@ -15,6 +15,9 @@ mod decompressor;
 
 use self::decompressor::{Decompressor, ZstdDecompressor};
 
+#[cfg(test)]
+mod test;
+
 /// The capacity of the read and write buffer in bytes.
 const BUF_SIZE: usize = 64_000;
 
@@ -421,66 +424,4 @@ where
 
         Poll::Pending
     }
-}
-
-#[tokio::test]
-async fn response_newline() {
-    let server_opts = ServerOptions {
-        binary_command_support: true,
-        compression_support: true,
-    };
-
-    let stats = Arc::new(Stats::new());
-    let pixmap = Arc::new(Pixmap::new(400, 800));
-
-    let mut test = tokio_test::io::Builder::new()
-        // Test all commands that require a response
-        .read(b"PX 16 16\r\n")
-        .write(b"PX 16 16 000000\r\n")
-        .read(b"SIZE\r\n")
-        .write(b"SIZE 400 800\r\n")
-        .read(b"HELP\r\n")
-        .write(format!("{}\r\n", Cmd::help_list(&server_opts)).as_bytes())
-        // Test different variations of newlines
-        .read(b"PX 16 16\n")
-        .write(b"PX 16 16 000000\r\n")
-        // Verify that adding a few whitespaces after the command doesn't make a difference
-        .read(b"PX 16 16                     \n")
-        .write(b"PX 16 16 000000\r\n")
-        // Using an out of bounds index should return an error
-        .read(b"PX 1000 0\r\n")
-        .write(b"ERR x coordinate out of bound\r\n")
-        .build();
-
-    let test = Pin::new(&mut test);
-
-    let lines = Lines::new(test, stats.clone(), pixmap.clone(), server_opts);
-
-    lines.await;
-}
-
-#[tokio::test]
-async fn compression() {
-    let server_opts = ServerOptions {
-        binary_command_support: true,
-        compression_support: true,
-    };
-
-    let stats = Arc::new(Stats::new());
-    let pixmap = Arc::new(Pixmap::new(400, 800));
-
-    let compressed_data = zstd::encode_all(&b"PX 16 16 AABBCC\r\nPX 16 16\r\n"[..], 0).unwrap();
-
-    let mut test = tokio_test::io::Builder::new()
-        .read(b"COMPRESS\r\n")
-        .write(b"COMPRESS\r\n")
-        .read(&compressed_data)
-        .write(b"PX 16 16 000000\r\n")
-        .build();
-
-    let test = Pin::new(&mut test);
-
-    let lines = Lines::new(test, stats.clone(), pixmap.clone(), server_opts);
-
-    lines.await;
 }
