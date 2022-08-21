@@ -236,7 +236,7 @@ where
             // See if it's the specialized binary command
             let command = if self.repeated_binary_commands > 0 {
                 if rd_len >= BINARY_PX_SIZE {
-                    let input_bytes = self.rd.split_to(PXB_CMD_SIZE);
+                    let input_bytes = self.rd.split_to(BINARY_PX_SIZE);
                     let (x, y, color) = Self::handle_pixel_bytes(&input_bytes);
                     Some(Cmd::SetPixel(x, y, color))
                 } else {
