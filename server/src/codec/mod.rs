@@ -1,3 +1,4 @@
+use std::ops::DerefMut;
 use std::sync::Arc;
 use std::task::Poll;
 use std::{mem::MaybeUninit, pin::Pin};
@@ -72,12 +73,13 @@ pub enum ReadError {
 /// send and receive values that represent entire lines. The `Lines` codec will
 /// handle the encoding and decoding as well as reading from and writing to the
 /// socket.
-pub struct Lines<'sock, 'decomp, T>
+pub struct Lines<'decomp, T>
 where
-    T: AsyncRead + AsyncWrite,
+    T: DerefMut + Unpin,
+    T::Target: AsyncRead + AsyncWrite + Unpin,
 {
     /// The TCP socket.
-    socket: Pin<&'sock mut T>,
+    socket: Pin<T>,
 
     /// Buffer used when reading from the socket. Data is not returned from
     /// this buffer until an entire line has been read.
@@ -105,13 +107,14 @@ where
     disconnecting: Option<String>,
 }
 
-impl<'sock, 'decomp, T> Lines<'sock, 'decomp, T>
+impl<'decomp, T> Lines<'decomp, T>
 where
-    T: AsyncRead + AsyncWrite,
+    T: DerefMut + Unpin,
+    T::Target: AsyncRead + AsyncWrite + Unpin,
 {
     /// Create a new `Lines` codec backed by the socket
     pub fn new(
-        socket: Pin<&'sock mut T>,
+        socket: Pin<T>,
         stats: Arc<Stats>,
         pixmap: Arc<Pixmap>,
         opts: ServerOptions,
@@ -233,6 +236,7 @@ where
     #[inline(always)]
     fn process_rx_buffer(&mut self, cx: &mut std::task::Context<'_>) -> Result<(), String> {
         let mut pixels = 0;
+
         let error_message = loop {
             let rd_len = self.rd.len();
 
@@ -362,9 +366,10 @@ where
     }
 }
 
-impl<'sock, 'decomp, T> Future for Lines<'sock, 'decomp, T>
+impl<'decomp, T> Future for Lines<'decomp, T>
 where
-    T: AsyncRead + AsyncWrite,
+    T: DerefMut + Unpin,
+    T::Target: AsyncRead + AsyncWrite + Unpin,
 {
     type Output = String;
 
