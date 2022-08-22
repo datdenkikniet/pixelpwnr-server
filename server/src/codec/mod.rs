@@ -249,25 +249,28 @@ where
                 } else {
                     break None;
                 }
-            } else if self.opts.binary_command_support
-                && rd_len >= PXB_CMD_SIZE
-                && self.rd.starts_with(&PXB_PREFIX)
-            {
-                let input_bytes = self.rd.split_to(PXB_CMD_SIZE);
-                const OFF: usize = PXB_PREFIX.len();
-                let (x, y, color) =
-                    Self::handle_pixel_bytes(&input_bytes[OFF..OFF + BINARY_PX_SIZE]);
-                Some(Cmd::SetPixel(x, y, color))
-            } else if self.opts.binary_command_support
-                && self.rd.starts_with(&PNB_PREFIX)
-                && rd_len >= PNB_CMD_SIZE
-            {
-                let input_bytes = self.rd.split_to(PNB_CMD_SIZE);
-                const OFF: usize = PNB_PREFIX.len();
-                let repeat_pixels =
-                    u32::from_le_bytes(input_bytes[OFF..OFF + 4].try_into().expect("Infallible"));
-                self.repeated_binary_commands = repeat_pixels;
-                None
+            } else if self.opts.binary_command_support && self.rd.starts_with(&PXB_PREFIX) {
+                if rd_len >= PXB_CMD_SIZE {
+                    let input_bytes = self.rd.split_to(PXB_CMD_SIZE);
+                    const OFF: usize = PXB_PREFIX.len();
+                    let (x, y, color) =
+                        Self::handle_pixel_bytes(&input_bytes[OFF..OFF + BINARY_PX_SIZE]);
+                    Some(Cmd::SetPixel(x, y, color))
+                } else {
+                    break None;
+                }
+            } else if self.opts.binary_command_support && self.rd.starts_with(&PNB_PREFIX) {
+                if rd_len >= PNB_CMD_SIZE {
+                    let input_bytes = self.rd.split_to(PNB_CMD_SIZE);
+                    const OFF: usize = PNB_PREFIX.len();
+                    let repeat_pixels = u32::from_le_bytes(
+                        input_bytes[OFF..OFF + 4].try_into().expect("Infallible"),
+                    );
+                    self.repeated_binary_commands = repeat_pixels;
+                    None
+                } else {
+                    break None;
+                }
             } else {
                 // Find the new line character
                 let pos = self
