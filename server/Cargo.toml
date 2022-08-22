@@ -32,5 +32,8 @@ parking_lot = "0.12.0"
 image = { version = "0.24", default-features = false, features = [ "png" ] }
 zstd = "0.11.1"
 
+[features]
+default = [ ]
+
 [dev-dependencies]
 tokio-test = "0.4"

@@ -48,12 +48,12 @@ cargo build --release
 ./target/release/pixelpwnr-server --help
 ```
 
-## New commands
-This implementation adds the following new commands to the protocol.
+## The binary PX command
 
-### Binary PX command
+This implementation adds a new command to the protocol. It is enabled if the `--binary` flag is passed to `pixelflut-server` when
+running the exectuable.
 
-This command is enabled if the `--binary` flag is passed to `pixelflut-server`.
+The command is laid out as follows:
 
 ```
 PBxyrgba
@@ -86,6 +86,8 @@ COMPRESS\r\n
 
 After the server responds by sending `COMPRESS\r\n` in reply, it will interpret all data coming from the client as ZSTD compressed
 data. Data sent from the server to the client is not compressed.
+
+=======
 
 ## Requirements
 * Rust (MSRV v1.58.1 or higher)

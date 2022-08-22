@@ -1,14 +1,15 @@
 use std::ops::DerefMut;
 use std::sync::Arc;
 use std::task::Poll;
+use std::time::{Duration, Instant};
 use std::{mem::MaybeUninit, pin::Pin};
 
 use bytes::BytesMut;
 use futures::Future;
 use pixelpwnr_render::{Color, Pixmap};
 use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::time::Sleep;
 
-use crate::arg_handler::ServerOptions;
 use crate::cmd::{Cmd, CmdResult};
 use crate::stats::Stats;
 
@@ -18,6 +19,22 @@ use self::decompressor::{Decompressor, ZstdDecompressor};
 
 #[cfg(test)]
 mod test;
+
+/// Options for this Codec
+#[derive(Debug, Clone, Copy)]
+pub struct CodecOptions {
+    pub rate_limit: Option<RateLimit>,
+    pub allow_binary_cmd: bool,
+    pub allow_compression: bool,
+}
+
+/// A rate limit
+#[derive(Debug, Clone, Copy)]
+pub enum RateLimit {
+    // A rate limit in bits per second
+    BitsPerSecond { limit: usize },
+    // Pixels { pps: usize },
+}
 
 /// The capacity of the read and write buffer in bytes.
 const BUF_SIZE: usize = 64_000;
@@ -100,11 +117,18 @@ where
     /// The amount of repeated binary commands to process
     repeated_binary_commands: u32,
 
-    /// Server options
-    opts: ServerOptions,
-
     /// This is `Some(Reason)` if this Lines is disconnecting
     disconnecting: Option<String>,
+
+    /// Codec options
+    opts: CodecOptions,
+
+    /// A sleep that has to expire before we should
+    /// resume receiving
+    rx_wait: Option<Pin<Box<Sleep>>>,
+
+    /// The last time we filled up the RX buffer
+    last_refill_time: Instant,
 }
 
 impl<'decomp, T> Lines<'decomp, T>
@@ -113,22 +137,20 @@ where
     T::Target: AsyncRead + AsyncWrite + Unpin,
 {
     /// Create a new `Lines` codec backed by the socket
-    pub fn new(
-        socket: Pin<T>,
-        stats: Arc<Stats>,
-        pixmap: Arc<Pixmap>,
-        opts: ServerOptions,
-    ) -> Self {
+
+    pub fn new(socket: Pin<T>, stats: Arc<Stats>, pixmap: Arc<Pixmap>, opts: CodecOptions) -> Self {
         Lines {
             socket,
             rd: BytesMut::with_capacity(BUF_SIZE),
             wr: BytesMut::with_capacity(BUF_SIZE),
             stats,
             pixmap,
+            disconnecting: None,
+            opts,
+            rx_wait: None,
+            last_refill_time: Instant::now(),
             decoder: None,
             repeated_binary_commands: 0,
-            opts,
-            disconnecting: None,
         }
     }
 
@@ -166,6 +188,14 @@ where
         }
     }
 
+    /// If we're currently not waiting for anything,
+    /// wait for `duration`.
+    fn try_wait_for(&mut self, duration: Duration) {
+        if self.rx_wait.is_none() {
+            self.rx_wait = Some(Box::pin(tokio::time::sleep(duration)));
+        }
+    }
+
     /// Read data from the socket if the buffer isn't full enough,
     /// and it's length reached the lower size threshold.
     ///
@@ -186,9 +216,30 @@ where
             return Poll::Ready(Ok(len));
         }
 
+        let read_len = match self.opts.rate_limit {
+            Some(RateLimit::BitsPerSecond { limit: bps }) => {
+                let duration_since_last_refill =
+                    Instant::now().duration_since(self.last_refill_time);
+                let allowed = ((duration_since_last_refill.as_secs_f32() * (bps as f32 / 8.0))
+                    as usize)
+                    .min(BUF_SIZE - len);
+
+                let wait_dur =
+                    Duration::from_nanos(((BUF_SIZE as u64 * 1_000_000_000) / bps as u64).max(1));
+                self.try_wait_for(wait_dur);
+
+                allowed
+            }
+            None => BUF_SIZE - len,
+        };
+
+        if read_len == 0 {
+            return Poll::Ready(Ok(len));
+        }
+
         // Read data and try to fill the buffer, update the statistics
         let mut local_buf: [MaybeUninit<u8>; BUF_SIZE] = [MaybeUninit::uninit(); BUF_SIZE];
-        let mut read_buf = tokio::io::ReadBuf::uninit(&mut local_buf[..BUF_SIZE - len]);
+        let mut read_buf = tokio::io::ReadBuf::uninit(&mut local_buf[..read_len]);
 
         let amount = match self.socket.as_mut().poll_read(cx, &mut read_buf) {
             Poll::Ready(Ok(_)) => read_buf.filled().len(),
@@ -215,6 +266,8 @@ where
         self.rd.extend_from_slice(extend_slice);
 
         self.stats.inc_bytes_read(amount);
+
+        self.last_refill_time = Instant::now();
 
         // We're done reading
         return Poll::Ready(Ok(self.rd.len()));
@@ -249,7 +302,7 @@ where
                 } else {
                     break None;
                 }
-            } else if self.opts.binary_command_support && self.rd.starts_with(&PXB_PREFIX) {
+            } else if self.opts.allow_binary_cmd && self.rd.starts_with(&PXB_PREFIX) {
                 if rd_len >= PXB_CMD_SIZE {
                     let input_bytes = self.rd.split_to(PXB_CMD_SIZE);
                     const OFF: usize = PXB_PREFIX.len();
@@ -259,7 +312,7 @@ where
                 } else {
                     break None;
                 }
-            } else if self.opts.binary_command_support && self.rd.starts_with(&PNB_PREFIX) {
+            } else if self.opts.allow_binary_cmd && self.rd.starts_with(&PNB_PREFIX) {
                 if rd_len >= PNB_CMD_SIZE {
                     let input_bytes = self.rd.split_to(PNB_CMD_SIZE);
                     const OFF: usize = PNB_PREFIX.len();
@@ -297,7 +350,7 @@ where
                     // Drop trailing new line characters
                     line.truncate(pos);
 
-                    if self.opts.compression_support && &line[..] == b"COMPRESS" {
+                    if self.opts.allow_compression && &line[..] == b"COMPRESS" {
                         self.decoder = Some(ZstdDecompressor::new());
                         self.rd.truncate(0);
                         self.buffer(b"COMPRESS\r\n", cx);
@@ -395,6 +448,17 @@ where
             if let Some(reason) = &self.disconnecting {
                 return Poll::Ready(reason.clone());
             }
+            if let Some(sleep) = &mut self.rx_wait {
+                if let Poll::Pending = sleep.as_mut().poll(cx) {
+                    return Poll::Pending;
+                } else {
+                    self.rx_wait.take();
+                }
+            }
+        } else if write_is_pending && self.rx_wait.is_some() {
+            // If writes are currently pending and we have an rx wait
+            // time, we should skip RX and just return pending
+            return Poll::Pending;
         }
 
         // Try to read any new data into the read buffer

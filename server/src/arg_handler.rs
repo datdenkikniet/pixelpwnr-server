@@ -4,7 +4,9 @@ use std::time::Duration;
 
 use clap::Parser;
 
-#[derive(Clone, Parser)]
+use crate::codec::{CodecOptions, RateLimit};
+
+#[derive(Parser, Clone)]
 pub struct Opts {
     /// The host to bind to
     #[clap(long, default_value = "0.0.0.0:1337", alias = "bind")]
@@ -73,6 +75,18 @@ pub struct Opts {
     #[clap(long, default_value = "60")]
     pub save_interval: u64,
 
+    /// The maximum bandwidth at which a single client is
+    /// allowed to send data to the server, in bits per second. Default is unlimited.
+    #[clap(long)]
+    pub bw_limit: Option<usize>,
+
+    /// Enable the PXB and PNB commands
+    ///
+    /// This allows clients to send the binary PXB (for a single pixel)
+    /// and PNB (for N pixels at a time) commands>>>>>>> ratelimit
+    #[clap(long)]
+    pub binary: bool,
+
     /// Enable the COMPRESS command
     ///
     /// This allows clients to send the COMPRESS command, allowing
@@ -81,13 +95,6 @@ pub struct Opts {
     /// size of the decompressed data sent by a client.
     #[clap(long)]
     pub compression: bool,
-
-    /// Enable the PXB and PNB commands
-    ///
-    /// This allows clients to send the binary PXB (for a single pixel)
-    /// and PNB (for N pixels at a time) commands
-    #[clap(long)]
-    pub binary: bool,
 }
 
 macro_rules! map_duration {
@@ -141,28 +148,14 @@ impl Opts {
         )
     }
 }
-
-#[derive(Clone, Copy)]
-
-pub struct ServerOptions {
-    pub binary_command_support: bool,
-    pub compression_support: bool,
-}
-
-impl From<Opts> for ServerOptions {
+impl From<Opts> for CodecOptions {
     fn from(opts: Opts) -> Self {
-        Self {
-            binary_command_support: opts.binary,
-            compression_support: opts.compression,
-        }
-    }
-}
-
-impl Default for ServerOptions {
-    fn default() -> Self {
-        Self {
-            binary_command_support: false,
-            compression_support: false,
+        CodecOptions {
+            rate_limit: opts
+                .bw_limit
+                .map(|bps| RateLimit::BitsPerSecond { limit: bps }),
+            allow_binary_cmd: opts.binary,
+            allow_compression: opts.compression,
         }
     }
 }

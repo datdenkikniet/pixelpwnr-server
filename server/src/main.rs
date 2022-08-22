@@ -15,12 +15,11 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use arg_handler::ServerOptions;
 use clap::StructOpt;
 use pixelpwnr_render::{Pixmap, Renderer};
 use tokio::net::{TcpListener, TcpStream};
 
-use codec::Lines;
+use codec::{CodecOptions, Lines};
 use stat_reporter::StatReporter;
 use stats::{Stats, StatsRaw};
 
@@ -62,8 +61,6 @@ fn main() {
         ));
     }
 
-    let server_opts = arg_handler.clone().into();
-
     let net_running = Arc::new(AtomicBool::new(true));
 
     // Create a std threa first. Tokio's [`TcpStream::listen`] automatically sets
@@ -79,9 +76,10 @@ fn main() {
     let net_pixmap = pixmap.clone();
     let net_stats = stats.clone();
     let net_running_2 = net_running.clone();
+    let opts = arg_handler.clone().into();
     let tokio_runtime = std::thread::spawn(move || {
         runtime.block_on(async move {
-            listen(listener, net_pixmap, net_stats, server_opts).await;
+            listen(listener, net_pixmap, net_stats, opts).await;
             net_running_2.store(false, Ordering::Relaxed);
         })
     });
@@ -97,7 +95,7 @@ async fn listen(
     listener: std::net::TcpListener,
     pixmap: Arc<Pixmap>,
     stats: Arc<Stats>,
-    server_opts: ServerOptions,
+    opts: CodecOptions,
 ) {
     let listener = TcpListener::from_std(listener).unwrap();
 
@@ -110,7 +108,7 @@ async fn listen(
             println!("Failed to accept a connection");
             continue;
         };
-        handle_socket(socket, pixmap_worker, stats_worker, server_opts);
+        handle_socket(socket, pixmap_worker, stats_worker, opts);
     }
 }
 
@@ -148,7 +146,7 @@ fn handle_socket(
     mut socket: TcpStream,
     pixmap: Arc<Pixmap>,
     stats: Arc<Stats>,
-    server_opts: ServerOptions,
+    opts: CodecOptions,
 ) {
     // A client connected, ensure we're able to get it's address
     let addr = socket.peer_addr().expect("failed to get remote address");
@@ -167,7 +165,7 @@ fn handle_socket(
 
         // Wrap the socket with the Lines codec,
         // to interact with lines instead of raw bytes
-        let mut lines_val = Lines::new(socket, stats.clone(), pixmap, server_opts);
+        let mut lines_val = Lines::new(socket, stats.clone(), pixmap, opts);
         let lines = Pin::new(&mut lines_val);
 
         let result = lines.await;

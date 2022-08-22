@@ -2,7 +2,7 @@ use atoi::atoi;
 use bytes::Bytes;
 use pixelpwnr_render::{Color, Pixmap, PixmapErr};
 
-use crate::arg_handler::ServerOptions;
+use crate::codec::CodecOptions;
 
 /// A set of pixel commands a client might send.
 ///
@@ -97,7 +97,7 @@ impl Cmd {
         self,
         pixmap: &'a Pixmap,
         pixel_set_count: &mut usize,
-        opts: &ServerOptions,
+        codec_opts: &CodecOptions,
     ) -> CmdResult {
         // Match the command, invoke the proper action
         match self {
@@ -133,7 +133,7 @@ impl Cmd {
             }
 
             // Show help
-            Cmd::Help => return CmdResult::Response(Self::help_list(opts)),
+            Cmd::Help => return CmdResult::Response(Self::help_list(codec_opts)),
 
             // Quit the connection
             Cmd::Quit => return CmdResult::Quit,
@@ -147,7 +147,7 @@ impl Cmd {
     }
 
     /// Get a list of command help, to respond to a client.
-    pub fn help_list(opts: &ServerOptions) -> String {
+    pub fn help_list(opts: &CodecOptions) -> String {
         let mut help = format!(
             "\
             HELP {} v{}\r\n\
@@ -156,23 +156,23 @@ impl Cmd {
             HELP - PX <x> <y>   >>  PX <x> <y> <RRGGBB>\r\n\
             HELP - SIZE         >>  SIZE <width> <height>\r\n\
             HELP - HELP         >>  HELP ...\
-        ",
+            ",
             env!("CARGO_PKG_NAME"),
             env!("CARGO_PKG_VERSION")
         );
 
-        if opts.binary_command_support {
+        if opts.allow_binary_cmd {
             help.push_str(
                 "\r\nHELP - PBxyrgba     >> (NO newline, x, y = 2 byte LE u16, r, g, b, a = u8)",
             );
         }
 
-        if opts.compression_support {
+        if opts.allow_compression {
             help.push_str("\r\nHELP - COMPRESS     >> Enable ecompression. After transmitting COMPRESS\\r\\n, the server will attempt to decode\
             all incoming data as ZSTD frames. Data sent towards the client is not compressed.")
         }
 
-        help.push_str("\r\nHELP - QUIT");
+        help.push_str("            \r\nHELP - QUIT         >> (Disconnect)\r\n");
 
         help
     }
